@@ -6,10 +6,11 @@ use uuid::Uuid;
 pub struct NombreArchivo(String);
 
 impl NombreArchivo {
+
     pub fn new(nombre: impl Into<String>) -> Result<Self, NombreArchivoError> {
         let nombre_limpio = nombre.into().trim().to_string();
         ValidadorNombreArchivo::validar(&nombre_limpio)?;
-        Ok(Self(nombre_limpio))
+        Ok(Self::generado(&nombre_limpio))
     }
 
     /// Devuelve la representación en cadena como `&str`.
@@ -30,10 +31,22 @@ impl fmt::Display for NombreArchivo {
 }
 
 impl NombreArchivo {
-    /// Genera un nombre de archivo único utilizando un UUID v4 y una extensión previamente validada.
-    pub fn generado(extension: &str) -> Self {
-        let extension_limpia = extension.trim().trim_start_matches('.');
-        Self(format!("{}.{}", Uuid::new_v4(), extension_limpia))
+    
+    /// Genera un nombre de archivo único usando un UUID v4 y extrayendo 
+    /// la extensión del nombre o ruta proporcionada.
+    pub fn generado(nombre_o_extension: &str) -> Self {
+        let path = Path::new(nombre_o_extension.trim());
+        let extension = path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or("")
+            .trim_start_matches('.');
+
+        if extension.is_empty() {
+            Self(Uuid::new_v4().to_string())
+        } else {
+            Self(format!("{}.{}", Uuid::new_v4(), extension))
+        }
     }
 }
 
@@ -228,19 +241,53 @@ mod tests2 {
     use super::*;
 
     #[test]
-    fn genera_uuid_v4_desde_diferentes_nombres() {
-        let entradas = [
-            "imagen",
-            "foto_perfil",
-            "vacaciones",
-            "documento",
-            "captura_pantalla",
+    fn test_diez_entradas_new() {
+        let entradas = vec![
+            "documento.txt",
+            "imagen.png",
+            "archivo_sin_extension",
+            "ruta/relativa/archivo.pdf",
+            "  archivo_con_espacios.rs  ",
+            "comprimido.tar.gz",
+            ".archivo_oculto.md",
+            "documento.FINAL.docx",
+            "audio.mp3",
+            "script.py",
         ];
 
         for entrada in entradas {
-            let resultado = NombreArchivo::new(entrada).unwrap();
+            match NombreArchivo::new(entrada) {
+                Ok(nombre) => println!("Original: {:<30} | UUID Generado: {}", entrada, nombre.0),
+                Err(e) => println!("Original: {:<30} | Error de validación: {:?}", entrada, e),
+            }
+        }
+    }
+}
 
-            println!("Entrada: {entrada} -> Resultado: {}", resultado.as_str());
+#[cfg(test)]
+mod tests3 {
+    use super::*;
+
+    #[test]
+    fn test_entradas_que_rompen_new() {
+        let entradas_invalidas = vec![
+            "",                                  // Vacío
+            "   ",                               // Solo espacios
+            "archivo/con/slashes/invalidos.txt", // Caracteres prohibidos en rutas o nombres planos
+            "archivo\\con\\backslash.txt",       // Backslashes
+            "archivo?invalido.png",              // Signos de interrogación
+            "archivo*invalido.txt",              // Asteriscos
+            "archivo<invalido>.doc",             // Signos de mayor/menor
+            "archivo:invalido.pdf",              // Dos puntos
+            "archivo|invalido.mp3",              // Pipe
+            "\0archivo_nulo.txt",                // Carácter nulo
+        ];
+
+        for entrada in entradas_invalidas {
+            match NombreArchivo::new(entrada) {
+                Ok(nombre) => println!("Inesperado OK para '{}': {}", entrada, nombre.0),
+                Err(e) => println!("Error atrapado correctamente para '{}': {:?}", entrada, e),
+            }
         }
     }
 }
