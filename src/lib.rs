@@ -10,6 +10,10 @@ pub mod vo {
     pub use super::core::{NombreArchivo, NombreArchivoError, ConfigRuta, Ruta, ErrorRuta, ConfigRutaError};
 }
 
+pub mod imagen_metadata {
+    pub use super::core::{ImagenMetadata, MetadataError};
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs::File;

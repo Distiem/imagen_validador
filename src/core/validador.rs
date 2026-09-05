@@ -5,6 +5,7 @@ use std::fmt;
 use std::io::{Cursor, Read};
 use std::path::Path;
 use std::collections::HashMap;
+use crate::imagen_metadata::ImagenMetadata;
 
 // ================= ERRORES =================
 
@@ -69,7 +70,6 @@ pub struct ImagenConfig {
 
     /// Límite de píxeles totales para prevenir ataques DoS con imágenes gigantes.
     pub max_image_pixels: u64,
-
     pub validar_coherencia_extension_mime: bool,
 }
 
@@ -116,24 +116,6 @@ impl ImagenConfig {
         }
         Ok(())
     }
-}
-
-// ================= METADATA DE RESULTADO =================
-
-/// Metadatos extraídos de una imagen que pasó todas las validaciones.
-#[derive(Debug, PartialEq)]
-pub struct ImagenMetadata {
-    pub width: u32,
-    pub height: u32,
-    pub mime: String,
-    pub extension: String,
-    pub bytes: usize,
-    pub size_formatted: String,
-    pub format: String,
-    pub mode: String,
-    pub aspect_ratio: f64,
-    pub total_pixels: u64,
-    pub megapixels: f64,
 }
 
 // ================= UTILIDADES =================
@@ -248,10 +230,7 @@ impl ImagenValidator {
         Ok(())
     }
 
-    /// Verifica que el tamaño del archivo esté dentro del rango permitido. `max_bytes` se recibe
-    /// explícito (no se lee de `self.config.max_bytes`) para que cada método público
-    /// (`validar_10mb` / `validar_5mb`) garantice su propio límite sin depender de cómo se
-    /// haya construido la config.
+    /// Verifica que el tamaño del archivo esté dentro del rango permitido. 
     fn validar_tamano(&self, size: usize, max_bytes: usize) -> Result<(), ImagenValidationError> {
         if size < self.config.min_bytes {
             return Err(ImagenValidationError::with_details(
@@ -379,23 +358,18 @@ impl ImagenValidator {
         let (ancho, alto, modo) =
             self.validar_integridad_profunda(data, formato, max_image_pixels)?;
 
-        Ok(ImagenMetadata {
-            width: ancho,
-            height: alto,
+        Ok(ImagenMetadata::new(
+            ancho,
+            alto,
             mime,
-            extension: ext,
-            bytes: data.len(),
-            size_formatted: formatear_bytes(data.len()),
-            format: format!("{:?}", formato),
-            mode: modo,
-            aspect_ratio: (ancho as f64 / alto as f64 * 100.0).round() / 100.0,
-            total_pixels: ancho as u64 * alto as u64,
-            megapixels: (ancho as f64 * alto as f64 / 1_000_000.0 * 10.0).round() / 10.0,
-        })
+            ext,
+            data.len(),
+            format!("{:?}", formato),
+            modo,
+        ))
     }
 
     /// Valida una imagen usando los límites por defecto de la configuración
-    /// (los que provienen de las constantes asociadas).
     pub fn validar_20mb(
         &self,
         data: &[u8],
@@ -439,6 +413,7 @@ impl ImagenValidator {
 }
 
 
+
 #[cfg(test)]
 mod tests {
     use crate::core::validador::ImagenValidator;
@@ -450,12 +425,12 @@ mod tests {
 
         match validador.validar_desde_ruta(ruta_imagen) {
             Ok(meta) => {
-                println!("✅ Imagen válida: {}x{}", meta.width, meta.height);
+                println!("✅ Imagen válida: {}x{}", meta.width(), meta.height());
                 println!("📋 Metadatos: {:#?}", meta);
 
                 // Validación básica para el test
-                assert!(meta.width > 0);
-                assert!(meta.height > 0);
+                assert!(meta.width() > 0);
+                assert!(meta.height() > 0);
             }
             Err(e) => {
                 panic!("❌ Error de validación: {}", e);
