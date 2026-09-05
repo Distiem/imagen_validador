@@ -9,7 +9,7 @@ impl NombreArchivo {
     pub fn new(nombre: impl Into<String>) -> Result<Self, NombreArchivoError> {
         let nombre_limpio = nombre.into().trim().to_string();
         ValidadorNombreArchivo::validar(&nombre_limpio)?;
-        Ok(Self::generado())
+        Ok(Self(nombre_limpio))
     }
 
     /// Devuelve la representación en cadena como `&str`.
@@ -29,10 +29,11 @@ impl fmt::Display for NombreArchivo {
     }
 }
 
-
 impl NombreArchivo {
-    pub fn generado() -> Self {
-        Self(Uuid::new_v4().to_string())
+    /// Genera un nombre de archivo único utilizando un UUID v4 y una extensión previamente validada.
+    pub fn generado(extension: &str) -> Self {
+        let extension_limpia = extension.trim().trim_start_matches('.');
+        Self(format!("{}.{}", Uuid::new_v4(), extension_limpia))
     }
 }
 
