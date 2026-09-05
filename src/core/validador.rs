@@ -1,7 +1,6 @@
 use image::codecs::png::PngDecoder;
 use image::codecs::webp::WebPDecoder;
 use image::{GenericImageView, ImageError, ImageFormat};
-use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::io::{Cursor, Read};
 use std::path::Path;
@@ -59,7 +58,7 @@ impl std::error::Error for ImagenValidationError {}
 
 // ================= CONFIGURACIÓN =================
 
-/// Configuración completa del validador: formatos, tamaños, dimensiones y reglas opcionales.
+/// Configuración completa del validador: formatos, tamaños y reglas opcionales.
 #[derive(Debug)]
 pub struct ImagenConfig {
     pub extensiones_permitidas: Vec<String>,
@@ -68,24 +67,25 @@ pub struct ImagenConfig {
     pub max_bytes: usize,
     pub min_bytes: usize,
 
-    pub ancho_max: u32,
-    pub alto_max: u32,
-    pub ancho_min: u32,
-    pub alto_min: u32,
-
     /// Límite de píxeles totales para prevenir ataques DoS con imágenes gigantes.
     pub max_image_pixels: u64,
-    /// Si `true`, rechaza imágenes animadas (APNG o WebP animado; los GIF ya se rechazan siempre).
-    pub validar_animacion: bool,
-
-    pub validar_aspect_ratio: bool,
-    pub aspect_ratio_min: f64,
-    pub aspect_ratio_max: f64,
-
-    /// Si `true`, rechaza imágenes en escala de grises o monocromáticas.
-    pub rechazar_monocromo: bool,
 
     pub validar_coherencia_extension_mime: bool,
+}
+
+impl ImagenConfig {
+    // Límites para validaciones específicas (10MB y 5MB)
+    pub const LIMITE_10MB_BYTES: usize = 10 * 1024 * 1024;
+    pub const LIMITE_10MB_PIXELS: u64 = 20_000_000;
+
+    pub const LIMITE_5MB_BYTES: usize = 5 * 1024 * 1024;
+    pub const LIMITE_5MB_PIXELS: u64 = 15_000_000;
+
+    // Constantes para los valores por defecto de la configuración
+    const DEFAULT_MAX_BYTES: usize = 20 * 1024 * 1024; // 20 MB
+    const DEFAULT_MIN_BYTES: usize = 1024;             // 1 KB
+    const DEFAULT_MAX_IMAGE_PIXELS: u64 = 30_000_000;
+    const DEFAULT_VALIDAR_COHERENCIA_EXTENSION_MIME: bool = true;
 }
 
 impl Default for ImagenConfig {
@@ -98,19 +98,10 @@ impl Default for ImagenConfig {
                 "image/png".into(),
                 "image/webp".into(),
             ],
-            max_bytes: 20 * 1024 * 1024, // 20 MB
-            min_bytes: 1024,             // 1 KB
-            ancho_max: 8000,
-            alto_max: 8000,
-            ancho_min: 100,
-            alto_min: 100,
-            max_image_pixels: 30_000_000,
-            validar_animacion: true,
-            validar_aspect_ratio: false,
-            aspect_ratio_min: 0.2,
-            aspect_ratio_max: 5.0,
-            rechazar_monocromo: false,
-            validar_coherencia_extension_mime: true,
+            max_bytes: Self::DEFAULT_MAX_BYTES,
+            min_bytes: Self::DEFAULT_MIN_BYTES,
+            max_image_pixels: Self::DEFAULT_MAX_IMAGE_PIXELS,
+            validar_coherencia_extension_mime: Self::DEFAULT_VALIDAR_COHERENCIA_EXTENSION_MIME,
         }
     }
 }
@@ -123,14 +114,6 @@ impl ImagenConfig {
                 "max_bytes debe ser mayor que min_bytes",
             ));
         }
-        if self.ancho_min >= self.ancho_max || self.alto_min >= self.alto_max {
-            return Err(ImagenValidationError::new("Dimensiones min/max inválidas"));
-        }
-        if self.validar_aspect_ratio && self.aspect_ratio_min >= self.aspect_ratio_max {
-            return Err(ImagenValidationError::new(
-                "aspect_ratio_min debe ser menor que aspect_ratio_max",
-            ));
-        }
         Ok(())
     }
 }
@@ -138,7 +121,7 @@ impl ImagenConfig {
 // ================= METADATA DE RESULTADO =================
 
 /// Metadatos extraídos de una imagen que pasó todas las validaciones.
-#[derive(Debug, Serialize, PartialEq, Deserialize)]
+#[derive(Debug, PartialEq)]
 pub struct ImagenMetadata {
     pub width: u32,
     pub height: u32,
@@ -265,18 +248,21 @@ impl ImagenValidator {
         Ok(())
     }
 
-    /// Verifica que el tamaño del archivo esté dentro del rango configurado.
-    fn validar_tamano(&self, size: usize) -> Result<(), ImagenValidationError> {
+    /// Verifica que el tamaño del archivo esté dentro del rango permitido. `max_bytes` se recibe
+    /// explícito (no se lee de `self.config.max_bytes`) para que cada método público
+    /// (`validar_10mb` / `validar_5mb`) garantice su propio límite sin depender de cómo se
+    /// haya construido la config.
+    fn validar_tamano(&self, size: usize, max_bytes: usize) -> Result<(), ImagenValidationError> {
         if size < self.config.min_bytes {
             return Err(ImagenValidationError::with_details(
                 format!("Archivo muy pequeño: {}", formatear_bytes(size)),
                 [("min", formatear_bytes(self.config.min_bytes))],
             ));
         }
-        if size > self.config.max_bytes {
+        if size > max_bytes {
             return Err(ImagenValidationError::with_details(
                 format!("Archivo muy grande: {}", formatear_bytes(size)),
-                [("max", formatear_bytes(self.config.max_bytes))],
+                [("max", formatear_bytes(max_bytes))],
             ));
         }
         Ok(())
@@ -289,18 +275,15 @@ impl ImagenValidator {
             .map_err(|_| ImagenValidationError::new("Formato de imagen no reconocido"))
     }
 
-    /// Rechaza APNG/WebP animados si `validar_animacion` está activo. No decodifica los
-    /// píxeles: solo inspecciona los metadatos de animación, así se corta temprano y barato
-    /// antes del decode completo en `validar_integridad_profunda`.
+    /// Rechaza APNG/WebP animados. Siempre activo, no es configurable: ningún tipo de imagen
+    /// animada está permitido. No decodifica los píxeles: solo inspecciona los metadatos de
+    /// animación, así se corta temprano y barato antes del decode completo en
+    /// `validar_integridad_profunda`.
     fn validar_animacion(
         &self,
         data: &[u8],
         formato: ImageFormat,
     ) -> Result<(), ImagenValidationError> {
-        if !self.config.validar_animacion {
-            return Ok(());
-        }
-
         if self.es_imagen_animada(data, formato) {
             return Err(ImagenValidationError::new("Imágenes animadas no permitidas"));
         }
@@ -330,6 +313,7 @@ impl ImagenValidator {
         &self,
         data: &[u8],
         formato: ImageFormat,
+        max_image_pixels: u64,
     ) -> Result<(u32, u32, String), ImagenValidationError> {
         let img = image::load_from_memory_with_format(data, formato).map_err(|e| match e {
             ImageError::IoError(_) => ImagenValidationError::new("Imagen corrupta o inválida"),
@@ -342,10 +326,10 @@ impl ImagenValidator {
         let (ancho, alto) = img.dimensions();
         let total_pixels = ancho as u64 * alto as u64;
 
-        if total_pixels > self.config.max_image_pixels {
+        if total_pixels > max_image_pixels {
             return Err(ImagenValidationError::with_details(
                 format!("Imagen excede el límite de píxeles: {}", total_pixels),
-                [("max", self.config.max_image_pixels.to_string())],
+                [("max", max_image_pixels.to_string())],  // Se usa el parámetro, no self.config
             ));
         }
 
@@ -363,71 +347,18 @@ impl ImagenValidator {
         Ok((ancho, alto, modo))
     }
 
-    /// Comprueba que ancho y alto estén dentro de los límites configurados.
-    fn validar_dimensiones(&self, ancho: u32, alto: u32) -> Result<(), ImagenValidationError> {
-        if ancho > self.config.ancho_max || alto > self.config.alto_max {
-            return Err(ImagenValidationError::with_details(
-                format!("Dimensiones excedidas: {}x{}", ancho, alto),
-                [(
-                    "max",
-                    format!("{}x{}", self.config.ancho_max, self.config.alto_max),
-                )],
-            ));
-        }
-        if ancho < self.config.ancho_min || alto < self.config.alto_min {
-            return Err(ImagenValidationError::with_details(
-                format!("Dimensiones insuficientes: {}x{}", ancho, alto),
-                [(
-                    "min",
-                    format!("{}x{}", self.config.ancho_min, self.config.alto_min),
-                )],
-            ));
-        }
-        Ok(())
-    }
-
-    /// Valida que la proporción ancho/alto esté en el rango permitido. No-op si está desactivado.
-    fn validar_aspect_ratio(&self, ancho: u32, alto: u32) -> Result<(), ImagenValidationError> {
-        if !self.config.validar_aspect_ratio {
-            return Ok(());
-        }
-        let ratio = ancho as f64 / alto as f64;
-        if !(self.config.aspect_ratio_min..=self.config.aspect_ratio_max).contains(&ratio) {
-            return Err(ImagenValidationError::with_details(
-                format!("Aspect ratio inválido: {:.2}", ratio),
-                [(
-                    "rango",
-                    format!(
-                        "{:.2}–{:.2}",
-                        self.config.aspect_ratio_min, self.config.aspect_ratio_max
-                    ),
-                )],
-            ));
-        }
-        Ok(())
-    }
-
-    /// Rechaza imágenes en escala de grises si `rechazar_monocromo` está activo.
-    fn validar_modo_color(&self, modo: &str) -> Result<(), ImagenValidationError> {
-        if self.config.rechazar_monocromo && modo == "L" {
-            return Err(ImagenValidationError::with_details(
-                "Imagen monocromática no permitida",
-                [("modo", modo.to_string())],
-            ));
-        }
-        Ok(())
-    }
-
-    /// Punto de entrada principal: valida una imagen desde bytes en memoria.
+    /// Lógica común de validación, parametrizada por el límite máximo de tamaño (`max_bytes`).
     ///
     /// Ejecuta en orden: extensión → MIME → coherencia extensión/MIME → tamaño →
-    /// animación → integridad/decode → dimensiones → aspect ratio → modo de color.
+    /// animación → integridad/decode (incluye límite de píxeles).
     /// Las comprobaciones más baratas van primero para descartar archivos inválidos
     /// sin pagar el costo del decode completo.
-    pub fn validar_bytes(
+    fn validar_con_limite(
         &self,
         data: &[u8],
         filename: &str,
+        max_bytes: usize,
+        max_image_pixels: u64,
     ) -> Result<ImagenMetadata, ImagenValidationError> {
         if data.is_empty() {
             return Err(ImagenValidationError::new("Archivo no proporcionado"));
@@ -439,17 +370,14 @@ impl ImagenValidator {
         if self.config.validar_coherencia_extension_mime {
             self.validar_coherencia_extension_mime(&ext, &mime)?;
         }
-        
-        self.validar_tamano(data.len())?;
-        
+
+        self.validar_tamano(data.len(), max_bytes)?;
+
         let formato = self.detectar_formato(data)?;
         self.validar_animacion(data, formato)?;
 
-        let (ancho, alto, modo) = self.validar_integridad_profunda(data, formato)?;
-
-        self.validar_dimensiones(ancho, alto)?;
-        self.validar_aspect_ratio(ancho, alto)?;
-        self.validar_modo_color(&modo)?;
+        let (ancho, alto, modo) =
+            self.validar_integridad_profunda(data, formato, max_image_pixels)?;
 
         Ok(ImagenMetadata {
             width: ancho,
@@ -464,6 +392,49 @@ impl ImagenValidator {
             total_pixels: ancho as u64 * alto as u64,
             megapixels: (ancho as f64 * alto as f64 / 1_000_000.0 * 10.0).round() / 10.0,
         })
+    }
+
+    /// Valida una imagen usando los límites por defecto de la configuración
+    /// (los que provienen de las constantes asociadas).
+    pub fn validar_20mb(
+        &self,
+        data: &[u8],
+        filename: &str,
+    ) -> Result<ImagenMetadata, ImagenValidationError> {
+        self.validar_con_limite(
+            data,
+            filename,
+            self.config.max_bytes,
+            self.config.max_image_pixels,
+        )
+    }
+
+    /// Valida con límite estricto de 10 MB y 20 MP.
+    pub fn validar_10mb(
+        &self,
+        data: &[u8],
+        filename: &str,
+    ) -> Result<ImagenMetadata, ImagenValidationError> {
+        self.validar_con_limite(
+            data,
+            filename,
+            ImagenConfig::LIMITE_10MB_BYTES,
+            ImagenConfig::LIMITE_10MB_PIXELS,
+        )
+    }
+
+    /// Valida con límite estricto de 5 MB y 15 MP.
+    pub fn validar_5mb(
+        &self,
+        data: &[u8],
+        filename: &str,
+    ) -> Result<ImagenMetadata, ImagenValidationError> {
+        self.validar_con_limite(
+            data,
+            filename,
+            ImagenConfig::LIMITE_5MB_BYTES,
+            ImagenConfig::LIMITE_5MB_PIXELS,
+        )
     }
 }
 
@@ -525,7 +496,7 @@ impl ImagenValidator {
             .and_then(|n| n.to_str())
             .unwrap_or_default();
 
-        self.validar_bytes(&data, filename)
+        self.validar_5mb(&data, filename)
     }
 }
 
@@ -540,3 +511,4 @@ pub fn eliminar_exif(
 
     Ok(buffer.into_inner())
 }
+

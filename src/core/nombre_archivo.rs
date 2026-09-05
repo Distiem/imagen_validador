@@ -9,7 +9,7 @@ impl NombreArchivo {
     pub fn new(nombre: impl Into<String>) -> Result<Self, NombreArchivoError> {
         let nombre_limpio = nombre.into().trim().to_string();
         ValidadorNombreArchivo::validar(&nombre_limpio)?;
-        Ok(Self(nombre_limpio))
+        Ok(Self::generado())
     }
 
     /// Devuelve la representación en cadena como `&str`.
@@ -31,10 +31,8 @@ impl fmt::Display for NombreArchivo {
 
 
 impl NombreArchivo {
-    /// Genera un nombre de archivo único utilizando un UUID v7 y una extensión previamente validada.
-    pub fn generado(extension: &str) -> Self {
-        let extension_limpia = extension.trim().trim_start_matches('.');
-        Self(format!("{}.{}", Uuid::new_v4(), extension_limpia))
+    pub fn generado() -> Self {
+        Self(Uuid::new_v4().to_string())
     }
 }
 
@@ -221,5 +219,27 @@ mod tests {
         let entrada = "mi documento - borrador (v2).docx";
         let res = probar_y_notificar("10_EspaciosYSimbolosPermitidos", entrada);
         assert!(res.is_ok());
+    }
+}
+
+#[cfg(test)]
+mod tests2 {
+    use super::*;
+
+    #[test]
+    fn genera_uuid_v4_desde_diferentes_nombres() {
+        let entradas = [
+            "imagen",
+            "foto_perfil",
+            "vacaciones",
+            "documento",
+            "captura_pantalla",
+        ];
+
+        for entrada in entradas {
+            let resultado = NombreArchivo::new(entrada).unwrap();
+
+            println!("Entrada: {entrada} -> Resultado: {}", resultado.as_str());
+        }
     }
 }

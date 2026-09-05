@@ -6,7 +6,6 @@ edition = "2024"
 [dependencies]
 image = "0.25.10"
 infer = "0.22.0"
-serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.20"
 uuid = { version = "1.26.0", features = ["v4"] }
 

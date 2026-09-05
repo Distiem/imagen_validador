@@ -1,3 +1,5 @@
+// Eliminar el exif
+
 pub mod core;
 
 pub mod validador {
