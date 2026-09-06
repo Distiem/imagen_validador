@@ -8,6 +8,8 @@ pub enum DirectorioImagenes {
     /// Directorio por defecto para uploads generales.
     Uploads,
     Temporales,
+    FotoPerfil,
+    Banner,
 }
 
 impl DirectorioImagenes {
@@ -17,6 +19,8 @@ impl DirectorioImagenes {
         match self {
             Self::Uploads => "static/uploads/imagenes",
             Self::Temporales => "static/tmp/imagenes",
+            Self::FotoPerfil => "static/uploads/perfiles",
+            Self::Banner => "static/uploads/banners",
         }
     }
 }
@@ -75,14 +79,6 @@ impl ConfigRuta {
     /// Crea la configuración a partir de un directorio predefinido.
     pub fn desde_directorio(dir: DirectorioImagenes) -> Self {
         Self::new(dir.as_str())
-    }
-
-    /// Crea la configuración a partir de una variable de entorno.
-    /// Si la variable no está definida, utiliza el directorio por defecto.
-   pub fn desde_env(env: impl AsRef<str>) -> Self {
-        std::env::var(env.as_ref())
-            .map(Self::new)
-            .unwrap_or_default()
     }
 
     pub fn directorio_base(&self) -> &Path {

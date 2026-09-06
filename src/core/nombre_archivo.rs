@@ -31,6 +31,14 @@ impl fmt::Display for NombreArchivo {
 }
 
 impl NombreArchivo {
+    pub fn fijo(nombre: impl Into<String>) -> Result<Self, NombreArchivoError> {
+        let nombre_limpio = nombre.into().trim().to_string();
+        ValidadorNombreArchivo::validar(&nombre_limpio)?;
+        Ok(Self(nombre_limpio))
+    }
+}
+
+impl NombreArchivo {
     
     /// Genera un nombre de archivo único usando un UUID v4 y extrayendo 
     /// la extensión del nombre o ruta proporcionada.
