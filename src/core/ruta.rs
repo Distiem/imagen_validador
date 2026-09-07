@@ -149,6 +149,13 @@ impl Ruta {
     }
 }
 
+impl Ruta {
+    /// Reconstruye una `Ruta` directamente desde la base de datos sin aplicar restricciones de validación de directorio.
+    pub fn desde_db(path: impl Into<PathBuf>) -> Self {
+        Self(path.into())
+    }
+}
+
 impl fmt::Display for Ruta {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.to_web_string())

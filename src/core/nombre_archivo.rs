@@ -24,6 +24,13 @@ impl NombreArchivo {
     }
 }
 
+impl NombreArchivo {
+    /// Reconstruye un `NombreArchivo` directamente desde la base de datos sin aplicar validaciones de formato o limpieza de espacios.
+    pub fn desde_db(nombre: impl Into<String>) -> Self {
+        Self(nombre.into())
+    }
+}
+
 impl fmt::Display for NombreArchivo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
