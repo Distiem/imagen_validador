@@ -53,6 +53,8 @@ pub struct ConfigRuta {
     directorio_base: PathBuf,
 }
 
+use std::fs; // Para crear rutas
+
 impl ConfigRuta {
 
     fn new(directorio_base: impl Into<PathBuf>) -> Self {
@@ -74,6 +76,11 @@ impl ConfigRuta {
                     clave: clave.to_string(),
                 },
             })
+    }
+
+    /// Crea el directorio base y todos sus directorios padre si no existen.
+    pub fn crear_directorio_si_no_existe(&self) -> std::io::Result<()> {
+        fs::create_dir_all(&self.directorio_base)
     }
 
     /// Crea la configuración a partir de un directorio predefinido.
