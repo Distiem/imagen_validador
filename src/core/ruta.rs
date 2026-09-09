@@ -157,6 +157,26 @@ impl Ruta {
 }
 
 impl Ruta {
+    /// Devuelve la ruta pública que puede utilizarse directamente como URL
+    /// desde el navegador.
+    ///
+    /// Ejemplo:
+    /// `static/uploads/perfiles/foto.png`
+    /// → `/uploads/perfiles/foto.png`
+    pub fn ruta_publica(&self) -> String {
+        let ruta = self.to_web_string();
+
+        if let Some(ruta) = ruta.strip_prefix("static/") {
+            format!("/{ruta}")
+        } else if ruta.starts_with('/') {
+            ruta
+        } else {
+            format!("/{ruta}")
+        }
+    }
+}
+
+impl Ruta {
     /// Reconstruye una `Ruta` directamente desde la base de datos sin aplicar restricciones de validación de directorio.
     pub fn desde_db(path: impl Into<PathBuf>) -> Self {
         Self(path.into())
